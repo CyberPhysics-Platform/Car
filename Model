@@ -1,0 +1,58 @@
+from .shell import *
+from ..model import model_class
+import os
+import pickle
+import pandas as pd
+import time
+
+class car(model_class):
+    def __init__(self, params):
+        #attributes#
+        super().__init__(__file__)
+        self.params = params
+        
+        self.initialize_model()
+        
+    def initialize_model(self):
+        #code for model initialization 
+        self.model = compressor_model(**self.params)
+        
+        #input attributes to model
+        self.input_attributes = {1: {'TL1' : None},
+                                 2 : {'TR1' : None},
+                                 3 : {'TL2' : None},
+                                 4 : {'TR2' : None}}
+        
+        #output attributes from model
+        self.output_attributes = {1: {'Per' : None},
+                                  2 : {'Prov' : None}}
+        
+        #connectors links
+        self.connections = {1: None, 2: None, 3: None, 4 None}
+        
+        self.get_plot_attributes()
+
+    def get_output(self):
+        self.output_attributes = {1: {'Per' : self.model.Perekos},
+                                  2 : {'Prov' : self.model.Provis}}
+                                         
+    def get_plot_attributes(self):
+        for key, val in vars(self.model).items():
+            if 'class' not in key:
+                try:
+                    for attr in list(vars(val).keys()):
+                        self.plot_attributes[key+'_'+attr] = getattr(getattr(self.model, key), attr)
+                except TypeError:
+                    self.plot_attributes[key] = getattr(self.model, key)
+        
+    def set_parameters(self, param_dict):
+        for key, val in vars(self.model).items():
+            if 'class' not in key:
+                try:
+                    for attr in list(vars(val).keys()):
+                        if key+'_'+attr in param_dict.keys():
+                            setattr(getattr(self.model, key), attr, param_dict[key+'_'+attr])
+                except TypeError:
+                    if key in param_dict.keys():
+                        setattr(self.model, key, param_dict[key])
+    
