@@ -1,0 +1,234 @@
+import numpy as np
+from scipy import linalg
+from scipy import integrate
+import pandas as pd
+import os
+import re
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
+from scipy.stats import norm
+from scipy.optimize import *
+from scipy.signal import medfilt
+import pickle
+import array
+import math
+import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from matplotlib import animation, rc
+from matplotlib.animation import FuncAnimation, PillowWriter
+from IPython.display import HTML, Image
+import networkx as nx
+plt.style.use('fivethirtyeight')
+
+
+A0 = 29610 # Межосевое расстояние
+a = 440 # Ускорение телеги при разгоне
+b = 5000 # Ширина телеги
+d = 10000 # Длина телеги
+T0 = 8 # Середина цикла движения
+TL1 = 0 # Отклонение момента заднего левого двигателя от условного нуля
+TL2 = 0.2 # Отклонение момента переднего левого двигателя от условного нуля
+TR1 = 0.3 # Отклонение момента заднего правого двигателя от условного нуля
+TR2 = 0.1 # Отклонение момента переднего правого двигателя от условного нуля
+DT = 0.0002 # Задержка по времени
+DTss = max([abs(TL2-TL1), abs(TR2-TR1)]) # Расфазирование на одной стороне
+N = 0 # Поправка на натяжитель
+l = 30 # Длина втулки
+Rsh = 5 # Радиус шарнира
+Mn = 100/1000 # Номинальный момент
+M = 75*Mn # Момент
+W = 3500*2*3.14/60 # Скорость вращения
+D = 518 # Диаметр звездочки
+n = 10 # Количество зубьев на звездочке
+DL = W*D/2*DT # Дополнительная длина, выбираемая звездочкой
+p = D*math.sin(3.14/n) # Шаг цепи
+F = M*D/2000 # Сила натяжения
+q = 16 # Допускаемое давление
+Lnom = A0
+Ssh = DL/p
+q = F/p/l/(Rsh-Ssh)**2/3.14 # Давление фактическое
+Lkr = A0+(Rsh-math.sqrt(q/F*p*l*3.14))*p
+
+
+#Model class
+class compressor_model():
+    
+      def S(T):
+        if (T >= 0) and (T < DTss):
+            Sob = T**2/2
+        if (T >= DTss) and (T < T0):
+            Sob = DTss*T-DTss**2/2
+        if (T >= T0) and (T < T0+DTss):
+            Sob = 2*T0*T-T0**2-T**2+DTss*T-DTss**2/2
+        if (T >= T0+DTss) and (T < 2*T0):
+            Sob = -DTss*T+2*DTss*T0+DTss**2/2
+        if (T >= 2*T0) and (T < 2*T0+DTss):
+            Sob = DTss**2/2-DTss*T-2*T0*T+2*DTss*T0+2*T0**2+T**2/2
+        return a*Sob
+
+    self.K = [0]
+    self.B = [0]
+    
+# Длина цепи между звездочками
+    for t in range(1, 2*T0):
+        Lchain = S(t)+A0-N
+        ep = 0.1
+        k = 10
+
+        while (ep < 1):
+    
+            k = k * ep    
+            def PI(x):
+                y = math.sqrt(1+k*(2*x-A0)**2)
+                return y
+            L = scipy.integrate.quad(PI, 0, A0)
+            ep = Lchain/L[0]
+
+        self.K.append(k)
+        self.B.append(-k*A0)
+            
+    self.K.append(0)
+    self.B.append(0)
+
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(xlim=(0, A0), ylim=(-0.02, 0))
+    ax.set_title('Форма провиса приводящей цепи')
+    ax.set_xlabel('X, мм')
+    ax.set_ylabel('Y, мм')
+    line, = ax.plot([], [], lw=4)
+ 
+    def init():
+        line.set_data([], [])
+        return line,
+    def animate(i):
+        x = np.linspace(0, A0, 1000)
+        y = K[i]*x**2+B[i]*x
+        line.set_data(x, y)
+        return line,
+
+    ani = animation.FuncAnimation(fig, animate, init_func=init, frames=2*T0+1)
+
+    plt.show()
+
+    my_writer=animation.PillowWriter(fps=3, codec='libx2644', bitrate=10)
+
+    ani.save(filename='gif_test.gif', writer=my_writer)
+
+    ani.save('sine_wave.gif', writer='imagemagick')
+
+    def X(T):
+        if  T < 0:
+            X = 0
+        if (T >= 0) and (T < T0):
+            X = a*T**2/2
+        if (T >= T0) and (T < 2*T0):
+            X = a*T0*T-a*T0**2/2-a*(T-T0)**2/2
+        if  T >= 2*T0:
+            X = a*T0**2
+        return X
+
+    def KoorLeft(T):
+        KoorLeft = (X(T-TL1)-X(T-TL2))*b/A0
+        return KoorLeft
+
+    def KoorRigth(T):
+        KoorRigth = (X(T-TR1)-X(T-TR2))*b/A0
+        return KoorRigth
+
+    def Perekos(T):
+        Perekos = abs(KoorLeft(T) - KoorRigth(T))
+        return Perekos
+
+    def PerekosGrad(T):
+        PerekosGrad = math.atan(Perekos(T)/d)*180/3.14
+        return PerekosGrad
+
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(xlim=(0, 2*T0), ylim=(0, 4))
+    ax.set_title('Абсолютная величина перекоса')
+    ax.set_xlabel('Время, с')
+    ax.set_ylabel('Перекос, град')
+    line, = ax.plot([], [], lw=4)
+
+    self.x = [0]
+    self.y = [0]
+
+    for tt in range(0, 2*T0*100):
+        self.x.append(tt/100)
+        self.y.append(PerekosGrad(tt/100))
+    
+    plt.plot(x, y)
+    plt.show()
+    plt.savefig('Perekos.png')
+
+    self.K = [0]
+    self.B = [0]
+
+    def ITS(L):
+        ITS=(Lkr-L)/(Lkr-Lnom)
+        return ITS
+
+    for Ii in range(1, 200):
+        Lchain = Lkr-(Lkr-Lnom)*(200-Ii)/200
+        ep = 0.1
+        k = 10
+    
+        while (ep < 0.99):
+    
+            k = k * ep    
+            def PI(x):
+                y = math.sqrt(1+k*(2*x-A0)**2)
+                return y
+            L = scipy.integrate.quad(PI, 0, A0)
+            ep = Lchain/L[0]
+        
+        self.K.append(k)
+        self.B.append(-k*A0)
+            
+
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(xlim=(0, A0), ylim=(-0.08, 0))
+    ax.set_title('Форма провиса приводящей цепи')
+    ax.set_xlabel('X, мм')
+    ax.set_ylabel('Y, мм')
+    line, = ax.plot([], [], lw=4)
+ 
+    def init():
+        line.set_data([], [])
+        return line,
+    def animate(i):
+        x = np.linspace(0, A0, 1000)
+        y = K[i]*x**2+B[i]*x
+        line.set_data(x, y)
+        return line,
+
+    ani = animation.FuncAnimation(fig, animate, init_func=init, frames=200)
+
+    plt.show()
+
+    my_writer=animation.PillowWriter(fps=10, codec='libx2644', bitrate=10)
+
+    ani.save(filename='gif_test.gif', writer=my_writer)
+
+    ani.save('sine_wave.gif', writer='imagemagick')
+
+
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(xlim=(Lnom, Lkr), ylim=(0, 1))
+    ax.set_title('ИТС')
+    ax.set_xlabel('Длина цепи, м')
+    ax.set_ylabel('ИТС')
+    line, = ax.plot([], [], lw=4)
+
+    self.x = [0]
+    self.y = [0]
+
+    for tt in range(0, 200):
+        Lchain = Lkr-(Lkr-Lnom)*(200-tt)/200
+        x.append(Lchain)
+        y.append(ITS(Lchain))
+    
+    plt.plot(x, y)
+    plt.show()
+    plt.savefig('ITS.png')
